@@ -270,6 +270,7 @@ export function StarfoxGame() {
           life: 1,
         });
       }
+      playExplosion();
     }
 
     // Input
