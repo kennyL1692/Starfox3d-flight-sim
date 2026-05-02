@@ -500,6 +500,8 @@ export function StarfoxGame() {
       scene.traverse((obj) => {
         if ((obj as THREE.Mesh).geometry) (obj as THREE.Mesh).geometry.dispose();
       });
+      try { engineOsc.stop(); } catch { /* already stopped */ }
+      audioCtx.close();
     };
   }, [gameState]);
 
