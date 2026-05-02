@@ -18,6 +18,78 @@ export function StarfoxGame() {
     setScore(0);
     setHp(100);
 
+    // Audio (Web Audio API — synthesized SFX)
+    const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+    const audioCtx = new AudioCtx();
+    const masterGain = audioCtx.createGain();
+    masterGain.gain.value = 0.35;
+    masterGain.connect(audioCtx.destination);
+
+    // Engine hum (continuous)
+    const engineOsc = audioCtx.createOscillator();
+    engineOsc.type = "sawtooth";
+    engineOsc.frequency.value = 60;
+    const engineGain = audioCtx.createGain();
+    engineGain.gain.value = 0.06;
+    const engineFilter = audioCtx.createBiquadFilter();
+    engineFilter.type = "lowpass";
+    engineFilter.frequency.value = 220;
+    engineOsc.connect(engineFilter);
+    engineFilter.connect(engineGain);
+    engineGain.connect(masterGain);
+    engineOsc.start();
+
+    function playLaser() {
+      const t = audioCtx.currentTime;
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = "square";
+      osc.frequency.setValueAtTime(1400, t);
+      osc.frequency.exponentialRampToValueAtTime(180, t + 0.18);
+      gain.gain.setValueAtTime(0.25, t);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.2);
+      osc.connect(gain);
+      gain.connect(masterGain);
+      osc.start(t);
+      osc.stop(t + 0.22);
+    }
+
+    function playExplosion() {
+      const t = audioCtx.currentTime;
+      const bufferSize = audioCtx.sampleRate * 0.5;
+      const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+      const data = buffer.getChannelData(0);
+      for (let i = 0; i < bufferSize; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / bufferSize);
+      const noise = audioCtx.createBufferSource();
+      noise.buffer = buffer;
+      const filter = audioCtx.createBiquadFilter();
+      filter.type = "lowpass";
+      filter.frequency.setValueAtTime(1200, t);
+      filter.frequency.exponentialRampToValueAtTime(80, t + 0.5);
+      const gain = audioCtx.createGain();
+      gain.gain.setValueAtTime(0.5, t);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.5);
+      noise.connect(filter);
+      filter.connect(gain);
+      gain.connect(masterGain);
+      noise.start(t);
+    }
+
+    function playHit() {
+      const t = audioCtx.currentTime;
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = "sawtooth";
+      osc.frequency.setValueAtTime(220, t);
+      osc.frequency.exponentialRampToValueAtTime(60, t + 0.25);
+      gain.gain.setValueAtTime(0.4, t);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.3);
+      osc.connect(gain);
+      gain.connect(masterGain);
+      osc.start(t);
+      osc.stop(t + 0.32);
+    }
+
     // Scene
     const scene = new THREE.Scene();
     scene.fog = new THREE.FogExp2(0x0a0420, 0.012);
@@ -133,6 +205,7 @@ export function StarfoxGame() {
         scene.add(m);
         lasers.push({ mesh: m, vel: new THREE.Vector3(0, 0, -1.5) });
       }
+      playLaser();
     }
 
     // Enemies
@@ -197,6 +270,7 @@ export function StarfoxGame() {
           life: 1,
         });
       }
+      playExplosion();
     }
 
     // Input
@@ -323,6 +397,7 @@ export function StarfoxGame() {
           enemies.splice(i, 1);
           stateRef.current.hp -= 20;
           setHp(stateRef.current.hp);
+          playHit();
           if (stateRef.current.hp <= 0) endGame();
           continue;
         }
@@ -366,6 +441,7 @@ export function StarfoxGame() {
           rocks.splice(i, 1);
           stateRef.current.hp -= 30;
           setHp(stateRef.current.hp);
+          playHit();
           if (stateRef.current.hp <= 0) endGame();
           continue;
         }
@@ -424,6 +500,8 @@ export function StarfoxGame() {
       scene.traverse((obj) => {
         if ((obj as THREE.Mesh).geometry) (obj as THREE.Mesh).geometry.dispose();
       });
+      try { engineOsc.stop(); } catch { /* already stopped */ }
+      audioCtx.close();
     };
   }, [gameState]);
 
