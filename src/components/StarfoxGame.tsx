@@ -397,6 +397,7 @@ export function StarfoxGame() {
           enemies.splice(i, 1);
           stateRef.current.hp -= 20;
           setHp(stateRef.current.hp);
+          playHit();
           if (stateRef.current.hp <= 0) endGame();
           continue;
         }
