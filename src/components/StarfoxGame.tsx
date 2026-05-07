@@ -390,17 +390,32 @@ export function StarfoxGame() {
       if (keys["arrowdown"] || keys["s"]) ty -= speed * dt;
       tx = Math.max(-9, Math.min(9, tx));
       ty = Math.max(-3, Math.min(5, ty));
-      ship.position.x += (tx - ship.position.x) * 0.15;
-      ship.position.y += (ty - ship.position.y) * 0.15;
+      // Smoother pointer steering (eased follow)
+      const followX = usePointer ? 0.08 : 0.18;
+      const followY = usePointer ? 0.08 : 0.18;
+      const dx = tx - ship.position.x;
+      const dy = ty - ship.position.y;
+      ship.position.x += dx * followX;
+      ship.position.y += dy * followY;
 
-      // Banking
-      const bank = (tx - ship.position.x) * 0.5;
-      ship.rotation.z += (-bank - ship.rotation.z) * 0.1;
-      ship.rotation.x += (-(ty - ship.position.y) * 0.3 - ship.rotation.x) * 0.1;
+      // Banking based on horizontal/vertical desired velocity (not residual)
+      const targetBankZ = THREE.MathUtils.clamp(-dx * 0.25, -0.7, 0.7);
+      const targetPitchX = THREE.MathUtils.clamp(-dy * 0.18, -0.4, 0.4);
+      ship.rotation.z += (targetBankZ - ship.rotation.z) * 0.12;
+      ship.rotation.x += (targetPitchX - ship.rotation.x) * 0.12;
+      ship.rotation.y += (dx * 0.04 - ship.rotation.y) * 0.1;
 
-      // Camera follow
-      camera.position.x += (ship.position.x * 0.4 - camera.position.x) * 0.05;
-      camera.position.y += (ship.position.y * 0.3 + 3 - camera.position.y) * 0.05;
+      // Camera follow + shake
+      const camTargetX = ship.position.x * 0.4;
+      const camTargetY = ship.position.y * 0.3 + 3;
+      camera.position.x += (camTargetX - camera.position.x) * 0.08;
+      camera.position.y += (camTargetY - camera.position.y) * 0.08;
+      if (shakeTime > 0) {
+        shakeTime -= dt;
+        const k = Math.max(0, shakeTime / 0.45) * shakeAmp;
+        camera.position.x += (Math.random() - 0.5) * k;
+        camera.position.y += (Math.random() - 0.5) * k;
+      }
       camera.lookAt(ship.position.x * 0.5, ship.position.y * 0.5, ship.position.z - 10);
 
       // Shoot
