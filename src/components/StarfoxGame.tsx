@@ -616,7 +616,45 @@ export function StarfoxGame() {
 
   return (
     <div className="relative w-full h-screen overflow-hidden bg-background">
-      <div ref={mountRef} className="absolute inset-0" />
+      <div
+        ref={mountRef}
+        className="absolute inset-0 transition-transform"
+        style={{
+          transform: hitFlash > 0 ? `translate(${(Math.random() - 0.5) * hitFlash * 12}px, ${(Math.random() - 0.5) * hitFlash * 12}px)` : undefined,
+        }}
+      />
+      {/* Red damage vignette */}
+      {hitFlash > 0 && (
+        <div
+          className="pointer-events-none absolute inset-0"
+          style={{
+            background: `radial-gradient(ellipse at center, transparent 30%, rgba(255,0,40,${0.55 * hitFlash}) 100%)`,
+            boxShadow: `inset 0 0 120px rgba(255,0,40,${0.8 * hitFlash})`,
+          }}
+        />
+      )}
+      {/* Praise popup */}
+      {praiseText && gameState === "playing" && (
+        <div
+          key={praiseText.id}
+          className="pointer-events-none absolute left-1/2 top-[38%] -translate-x-1/2 font-mono font-black text-4xl md:text-5xl tracking-[0.2em] text-neon-yellow"
+          style={{
+            textShadow: "0 0 12px var(--neon-yellow), 0 0 24px var(--neon-magenta)",
+            animation: "praisePop 0.6s ease-out forwards",
+          }}
+        >
+          {praiseText.text}
+        </div>
+      )}
+      <style>{`
+        @keyframes praisePop {
+          0% { opacity: 0; transform: translate(-50%, 20px) scale(0.6); }
+          30% { opacity: 1; transform: translate(-50%, 0) scale(1.15); }
+          70% { opacity: 1; transform: translate(-50%, -8px) scale(1); }
+          100% { opacity: 0; transform: translate(-50%, -28px) scale(0.95); }
+        }
+      `}</style>
+
 
       {gameState === "playing" && (
         <>
