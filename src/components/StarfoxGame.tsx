@@ -520,6 +520,7 @@ export function StarfoxGame() {
           stateRef.current.hp -= 30;
           setHp(stateRef.current.hp);
           playHit();
+          damageFx(1.0);
           if (stateRef.current.hp <= 0) endGame();
           continue;
         }
@@ -527,9 +528,10 @@ export function StarfoxGame() {
         // Lasers can chip rocks
         for (let j = lasers.length - 1; j >= 0; j--) {
           if (r.mesh.position.distanceTo(lasers[j].mesh.position) < 1.4 * r.mesh.scale.x) {
+            const lp = lasers[j].mesh.position.clone();
             scene.remove(lasers[j].mesh);
             lasers.splice(j, 1);
-            explode(lasers[j]?.mesh.position ?? r.mesh.position, 0xffcc88);
+            explode(lp, 0xffcc88);
             stateRef.current.score += 25;
             setScore(stateRef.current.score);
             break;
@@ -551,6 +553,22 @@ export function StarfoxGame() {
         if (p.life <= 0) {
           scene.remove(p.mesh);
           particles.splice(i, 1);
+        }
+      }
+
+      // Shockwaves
+      for (let i = shockwaves.length - 1; i >= 0; i--) {
+        const s = shockwaves[i];
+        s.life -= dt * 2.5;
+        const k = 1 - s.life;
+        s.mesh.scale.setScalar(1 + k * 6);
+        s.mat.opacity = Math.max(0, s.life);
+        s.mesh.lookAt(camera.position);
+        if (s.life <= 0) {
+          scene.remove(s.mesh);
+          s.mesh.geometry.dispose();
+          s.mat.dispose();
+          shockwaves.splice(i, 1);
         }
       }
 
