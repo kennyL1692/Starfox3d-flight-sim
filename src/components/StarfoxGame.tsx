@@ -12,6 +12,19 @@ export function StarfoxGame() {
   const [praiseText, setPraiseText] = useState<{ id: number; text: string } | null>(null);
   const stateRef = useRef({ score: 0, hp: 100, running: false });
 
+  // Decay red damage flash
+  useEffect(() => {
+    if (hitFlash <= 0) return;
+    const id = setInterval(() => {
+      setHitFlash((f) => {
+        const nv = f - 0.08;
+        if (nv <= 0) { clearInterval(id); return 0; }
+        return nv;
+      });
+    }, 30);
+    return () => clearInterval(id);
+  }, [hitFlash]);
+
   useEffect(() => {
     if (gameState !== "playing" || !mountRef.current) return;
 
