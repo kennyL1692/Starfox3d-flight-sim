@@ -255,6 +255,8 @@ export function StarfoxGame() {
     type Particle = { mesh: THREE.Mesh; vel: THREE.Vector3; life: number };
     const particles: Particle[] = [];
     const partGeo = new THREE.BoxGeometry(0.15, 0.15, 0.15);
+    type Shockwave = { mesh: THREE.Mesh; mat: THREE.MeshBasicMaterial; life: number };
+    const shockwaves: Shockwave[] = [];
 
     function explode(pos: THREE.Vector3, color: number) {
       const mat = new THREE.MeshBasicMaterial({ color });
