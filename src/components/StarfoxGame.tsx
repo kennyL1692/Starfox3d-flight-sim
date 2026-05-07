@@ -281,6 +281,10 @@ export function StarfoxGame() {
     const onKeyDown = (e: KeyboardEvent) => {
       keys[e.key.toLowerCase()] = true;
       if (e.key === " ") e.preventDefault();
+      // Keyboard takes over pointer steering
+      if (["arrowleft", "arrowright", "arrowup", "arrowdown", "a", "d", "w", "s"].includes(e.key.toLowerCase())) {
+        usePointer = false;
+      }
     };
     const onKeyUp = (e: KeyboardEvent) => {
       keys[e.key.toLowerCase()] = false;
@@ -293,8 +297,18 @@ export function StarfoxGame() {
     let usePointer = false;
     const onPointerMove = (e: PointerEvent) => {
       const rect = renderer.domElement.getBoundingClientRect();
-      pointerX = ((e.clientX - rect.left) / rect.width) * 2 - 1;
-      pointerY = -(((e.clientY - rect.top) / rect.height) * 2 - 1);
+      const nx = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+      const ny = -(((e.clientY - rect.top) / rect.height) * 2 - 1);
+      // Deadzone in the center for stability
+      const dz = 0.08;
+      const apply = (v: number) => {
+        const s = Math.sign(v);
+        const a = Math.abs(v);
+        if (a < dz) return 0;
+        return s * ((a - dz) / (1 - dz));
+      };
+      pointerX = apply(nx);
+      pointerY = apply(ny);
       usePointer = true;
     };
     const onPointerDown = () => {
@@ -318,6 +332,40 @@ export function StarfoxGame() {
     let rockTimer = 0;
     let frame = 0;
     let raf = 0;
+    let shakeTime = 0;
+    let shakeAmp = 0;
+    let praiseId = 0;
+    const praises = ["NICE!", "BOOM!", "GOTCHA!", "DIRECT HIT!", "BULLSEYE!", "POW!", "BLAST!"];
+    function affirm(scorePopup = true) {
+      const text = praises[Math.floor(Math.random() * praises.length)];
+      praiseId++;
+      setPraiseText({ id: praiseId, text });
+      if (scorePopup) {
+        // schedule clear
+        const myId = praiseId;
+        setTimeout(() => {
+          setPraiseText((p) => (p && p.id === myId ? null : p));
+        }, 600);
+      }
+      // little affirmation chime
+      const t = audioCtx.currentTime;
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = "triangle";
+      osc.frequency.setValueAtTime(880, t);
+      osc.frequency.exponentialRampToValueAtTime(1760, t + 0.1);
+      gain.gain.setValueAtTime(0.2, t);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.18);
+      osc.connect(gain);
+      gain.connect(masterGain);
+      osc.start(t);
+      osc.stop(t + 0.2);
+    }
+    function damageFx(amp: number) {
+      shakeTime = 0.45;
+      shakeAmp = amp;
+      setHitFlash(1);
+    }
     const clock = new THREE.Clock();
 
     function animate() {
