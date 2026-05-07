@@ -463,14 +463,17 @@ export function StarfoxGame() {
           stateRef.current.hp -= 20;
           setHp(stateRef.current.hp);
           playHit();
+          damageFx(0.6);
           if (stateRef.current.hp <= 0) endGame();
           continue;
         }
 
         // Hit by laser
         let hit = false;
+        let hitPos: THREE.Vector3 | null = null;
         for (let j = lasers.length - 1; j >= 0; j--) {
           if (e.mesh.position.distanceTo(lasers[j].mesh.position) < 1) {
+            hitPos = lasers[j].mesh.position.clone();
             scene.remove(lasers[j].mesh);
             lasers.splice(j, 1);
             hit = true;
@@ -479,10 +482,18 @@ export function StarfoxGame() {
         }
         if (hit) {
           explode(e.mesh.position, 0xffaa00);
+          const ringGeo2 = new THREE.RingGeometry(0.3, 0.5, 24);
+          const ringMat2 = new THREE.MeshBasicMaterial({ color: 0xffee44, side: THREE.DoubleSide, transparent: true, opacity: 1 });
+          const ring = new THREE.Mesh(ringGeo2, ringMat2);
+          ring.position.copy(hitPos ?? e.mesh.position);
+          ring.lookAt(camera.position);
+          scene.add(ring);
+          shockwaves.push({ mesh: ring, mat: ringMat2, life: 1 });
           scene.remove(e.mesh);
           enemies.splice(i, 1);
           stateRef.current.score += 100;
           setScore(stateRef.current.score);
+          affirm();
           continue;
         }
 
