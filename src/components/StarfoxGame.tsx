@@ -8,7 +8,22 @@ export function StarfoxGame() {
   const [gameState, setGameState] = useState<GameState>("menu");
   const [score, setScore] = useState(0);
   const [hp, setHp] = useState(100);
+  const [hitFlash, setHitFlash] = useState(0); // red damage flash 0..1
+  const [praiseText, setPraiseText] = useState<{ id: number; text: string } | null>(null);
   const stateRef = useRef({ score: 0, hp: 100, running: false });
+
+  // Decay red damage flash
+  useEffect(() => {
+    if (hitFlash <= 0) return;
+    const id = setInterval(() => {
+      setHitFlash((f) => {
+        const nv = f - 0.08;
+        if (nv <= 0) { clearInterval(id); return 0; }
+        return nv;
+      });
+    }, 30);
+    return () => clearInterval(id);
+  }, [hitFlash]);
 
   useEffect(() => {
     if (gameState !== "playing" || !mountRef.current) return;
@@ -253,6 +268,8 @@ export function StarfoxGame() {
     type Particle = { mesh: THREE.Mesh; vel: THREE.Vector3; life: number };
     const particles: Particle[] = [];
     const partGeo = new THREE.BoxGeometry(0.15, 0.15, 0.15);
+    type Shockwave = { mesh: THREE.Mesh; mat: THREE.MeshBasicMaterial; life: number };
+    const shockwaves: Shockwave[] = [];
 
     function explode(pos: THREE.Vector3, color: number) {
       const mat = new THREE.MeshBasicMaterial({ color });
@@ -279,6 +296,10 @@ export function StarfoxGame() {
     const onKeyDown = (e: KeyboardEvent) => {
       keys[e.key.toLowerCase()] = true;
       if (e.key === " ") e.preventDefault();
+      // Keyboard takes over pointer steering
+      if (["arrowleft", "arrowright", "arrowup", "arrowdown", "a", "d", "w", "s"].includes(e.key.toLowerCase())) {
+        usePointer = false;
+      }
     };
     const onKeyUp = (e: KeyboardEvent) => {
       keys[e.key.toLowerCase()] = false;
@@ -291,8 +312,18 @@ export function StarfoxGame() {
     let usePointer = false;
     const onPointerMove = (e: PointerEvent) => {
       const rect = renderer.domElement.getBoundingClientRect();
-      pointerX = ((e.clientX - rect.left) / rect.width) * 2 - 1;
-      pointerY = -(((e.clientY - rect.top) / rect.height) * 2 - 1);
+      const nx = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+      const ny = -(((e.clientY - rect.top) / rect.height) * 2 - 1);
+      // Deadzone in the center for stability
+      const dz = 0.08;
+      const apply = (v: number) => {
+        const s = Math.sign(v);
+        const a = Math.abs(v);
+        if (a < dz) return 0;
+        return s * ((a - dz) / (1 - dz));
+      };
+      pointerX = apply(nx);
+      pointerY = apply(ny);
       usePointer = true;
     };
     const onPointerDown = () => {
@@ -316,6 +347,40 @@ export function StarfoxGame() {
     let rockTimer = 0;
     let frame = 0;
     let raf = 0;
+    let shakeTime = 0;
+    let shakeAmp = 0;
+    let praiseId = 0;
+    const praises = ["NICE!", "BOOM!", "GOTCHA!", "DIRECT HIT!", "BULLSEYE!", "POW!", "BLAST!"];
+    function affirm(scorePopup = true) {
+      const text = praises[Math.floor(Math.random() * praises.length)];
+      praiseId++;
+      setPraiseText({ id: praiseId, text });
+      if (scorePopup) {
+        // schedule clear
+        const myId = praiseId;
+        setTimeout(() => {
+          setPraiseText((p) => (p && p.id === myId ? null : p));
+        }, 600);
+      }
+      // little affirmation chime
+      const t = audioCtx.currentTime;
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = "triangle";
+      osc.frequency.setValueAtTime(880, t);
+      osc.frequency.exponentialRampToValueAtTime(1760, t + 0.1);
+      gain.gain.setValueAtTime(0.2, t);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.18);
+      osc.connect(gain);
+      gain.connect(masterGain);
+      osc.start(t);
+      osc.stop(t + 0.2);
+    }
+    function damageFx(amp: number) {
+      shakeTime = 0.45;
+      shakeAmp = amp;
+      setHitFlash(1);
+    }
     const clock = new THREE.Clock();
 
     function animate() {
@@ -340,17 +405,32 @@ export function StarfoxGame() {
       if (keys["arrowdown"] || keys["s"]) ty -= speed * dt;
       tx = Math.max(-9, Math.min(9, tx));
       ty = Math.max(-3, Math.min(5, ty));
-      ship.position.x += (tx - ship.position.x) * 0.15;
-      ship.position.y += (ty - ship.position.y) * 0.15;
+      // Smoother pointer steering (eased follow)
+      const followX = usePointer ? 0.08 : 0.18;
+      const followY = usePointer ? 0.08 : 0.18;
+      const dx = tx - ship.position.x;
+      const dy = ty - ship.position.y;
+      ship.position.x += dx * followX;
+      ship.position.y += dy * followY;
 
-      // Banking
-      const bank = (tx - ship.position.x) * 0.5;
-      ship.rotation.z += (-bank - ship.rotation.z) * 0.1;
-      ship.rotation.x += (-(ty - ship.position.y) * 0.3 - ship.rotation.x) * 0.1;
+      // Banking based on horizontal/vertical desired velocity (not residual)
+      const targetBankZ = THREE.MathUtils.clamp(-dx * 0.25, -0.7, 0.7);
+      const targetPitchX = THREE.MathUtils.clamp(-dy * 0.18, -0.4, 0.4);
+      ship.rotation.z += (targetBankZ - ship.rotation.z) * 0.12;
+      ship.rotation.x += (targetPitchX - ship.rotation.x) * 0.12;
+      ship.rotation.y += (dx * 0.04 - ship.rotation.y) * 0.1;
 
-      // Camera follow
-      camera.position.x += (ship.position.x * 0.4 - camera.position.x) * 0.05;
-      camera.position.y += (ship.position.y * 0.3 + 3 - camera.position.y) * 0.05;
+      // Camera follow + shake
+      const camTargetX = ship.position.x * 0.4;
+      const camTargetY = ship.position.y * 0.3 + 3;
+      camera.position.x += (camTargetX - camera.position.x) * 0.08;
+      camera.position.y += (camTargetY - camera.position.y) * 0.08;
+      if (shakeTime > 0) {
+        shakeTime -= dt;
+        const k = Math.max(0, shakeTime / 0.45) * shakeAmp;
+        camera.position.x += (Math.random() - 0.5) * k;
+        camera.position.y += (Math.random() - 0.5) * k;
+      }
       camera.lookAt(ship.position.x * 0.5, ship.position.y * 0.5, ship.position.z - 10);
 
       // Shoot
@@ -398,14 +478,17 @@ export function StarfoxGame() {
           stateRef.current.hp -= 20;
           setHp(stateRef.current.hp);
           playHit();
+          damageFx(0.6);
           if (stateRef.current.hp <= 0) endGame();
           continue;
         }
 
         // Hit by laser
         let hit = false;
+        let hitPos: THREE.Vector3 | null = null;
         for (let j = lasers.length - 1; j >= 0; j--) {
           if (e.mesh.position.distanceTo(lasers[j].mesh.position) < 1) {
+            hitPos = lasers[j].mesh.position.clone();
             scene.remove(lasers[j].mesh);
             lasers.splice(j, 1);
             hit = true;
@@ -414,10 +497,18 @@ export function StarfoxGame() {
         }
         if (hit) {
           explode(e.mesh.position, 0xffaa00);
+          const ringGeo2 = new THREE.RingGeometry(0.3, 0.5, 24);
+          const ringMat2 = new THREE.MeshBasicMaterial({ color: 0xffee44, side: THREE.DoubleSide, transparent: true, opacity: 1 });
+          const ring = new THREE.Mesh(ringGeo2, ringMat2);
+          ring.position.copy(hitPos ?? e.mesh.position);
+          ring.lookAt(camera.position);
+          scene.add(ring);
+          shockwaves.push({ mesh: ring, mat: ringMat2, life: 1 });
           scene.remove(e.mesh);
           enemies.splice(i, 1);
           stateRef.current.score += 100;
           setScore(stateRef.current.score);
+          affirm();
           continue;
         }
 
@@ -442,6 +533,7 @@ export function StarfoxGame() {
           stateRef.current.hp -= 30;
           setHp(stateRef.current.hp);
           playHit();
+          damageFx(1.0);
           if (stateRef.current.hp <= 0) endGame();
           continue;
         }
@@ -449,9 +541,10 @@ export function StarfoxGame() {
         // Lasers can chip rocks
         for (let j = lasers.length - 1; j >= 0; j--) {
           if (r.mesh.position.distanceTo(lasers[j].mesh.position) < 1.4 * r.mesh.scale.x) {
+            const lp = lasers[j].mesh.position.clone();
             scene.remove(lasers[j].mesh);
             lasers.splice(j, 1);
-            explode(lasers[j]?.mesh.position ?? r.mesh.position, 0xffcc88);
+            explode(lp, 0xffcc88);
             stateRef.current.score += 25;
             setScore(stateRef.current.score);
             break;
@@ -473,6 +566,22 @@ export function StarfoxGame() {
         if (p.life <= 0) {
           scene.remove(p.mesh);
           particles.splice(i, 1);
+        }
+      }
+
+      // Shockwaves
+      for (let i = shockwaves.length - 1; i >= 0; i--) {
+        const s = shockwaves[i];
+        s.life -= dt * 2.5;
+        const k = 1 - s.life;
+        s.mesh.scale.setScalar(1 + k * 6);
+        s.mat.opacity = Math.max(0, s.life);
+        s.mesh.lookAt(camera.position);
+        if (s.life <= 0) {
+          scene.remove(s.mesh);
+          s.mesh.geometry.dispose();
+          s.mat.dispose();
+          shockwaves.splice(i, 1);
         }
       }
 
@@ -507,7 +616,45 @@ export function StarfoxGame() {
 
   return (
     <div className="relative w-full h-screen overflow-hidden bg-background">
-      <div ref={mountRef} className="absolute inset-0" />
+      <div
+        ref={mountRef}
+        className="absolute inset-0 transition-transform"
+        style={{
+          transform: hitFlash > 0 ? `translate(${(Math.random() - 0.5) * hitFlash * 12}px, ${(Math.random() - 0.5) * hitFlash * 12}px)` : undefined,
+        }}
+      />
+      {/* Red damage vignette */}
+      {hitFlash > 0 && (
+        <div
+          className="pointer-events-none absolute inset-0"
+          style={{
+            background: `radial-gradient(ellipse at center, transparent 30%, rgba(255,0,40,${0.55 * hitFlash}) 100%)`,
+            boxShadow: `inset 0 0 120px rgba(255,0,40,${0.8 * hitFlash})`,
+          }}
+        />
+      )}
+      {/* Praise popup */}
+      {praiseText && gameState === "playing" && (
+        <div
+          key={praiseText.id}
+          className="pointer-events-none absolute left-1/2 top-[38%] -translate-x-1/2 font-mono font-black text-4xl md:text-5xl tracking-[0.2em] text-neon-yellow"
+          style={{
+            textShadow: "0 0 12px var(--neon-yellow), 0 0 24px var(--neon-magenta)",
+            animation: "praisePop 0.6s ease-out forwards",
+          }}
+        >
+          {praiseText.text}
+        </div>
+      )}
+      <style>{`
+        @keyframes praisePop {
+          0% { opacity: 0; transform: translate(-50%, 20px) scale(0.6); }
+          30% { opacity: 1; transform: translate(-50%, 0) scale(1.15); }
+          70% { opacity: 1; transform: translate(-50%, -8px) scale(1); }
+          100% { opacity: 0; transform: translate(-50%, -28px) scale(0.95); }
+        }
+      `}</style>
+
 
       {gameState === "playing" && (
         <>
