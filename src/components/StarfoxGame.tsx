@@ -8,6 +8,8 @@ export function StarfoxGame() {
   const [gameState, setGameState] = useState<GameState>("menu");
   const [score, setScore] = useState(0);
   const [hp, setHp] = useState(100);
+  const [hitFlash, setHitFlash] = useState(0); // red damage flash 0..1
+  const [praiseText, setPraiseText] = useState<{ id: number; text: string } | null>(null);
   const stateRef = useRef({ score: 0, hp: 100, running: false });
 
   useEffect(() => {
