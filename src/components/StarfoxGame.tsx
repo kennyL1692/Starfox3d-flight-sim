@@ -10,7 +10,28 @@ export function StarfoxGame() {
   const [hp, setHp] = useState(100);
   const [hitFlash, setHitFlash] = useState(0); // red damage flash 0..1
   const [praiseText, setPraiseText] = useState<{ id: number; text: string } | null>(null);
+  const [launching, setLaunching] = useState(false);
+  const [launchProgress, setLaunchProgress] = useState(0);
   const stateRef = useRef({ score: 0, hp: 100, running: false });
+
+  // Launch sequence: simulated loading bar, then start the game
+  const beginLaunch = () => {
+    if (launching) return;
+    setLaunching(true);
+    setLaunchProgress(0);
+    const start = performance.now();
+    const duration = 1600;
+    const tick = () => {
+      const t = Math.min(1, (performance.now() - start) / duration);
+      setLaunchProgress(t);
+      if (t < 1) requestAnimationFrame(tick);
+      else {
+        setLaunching(false);
+        setGameState("playing");
+      }
+    };
+    requestAnimationFrame(tick);
+  };
 
   // Decay red damage flash
   useEffect(() => {
