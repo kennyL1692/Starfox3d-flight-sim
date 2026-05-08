@@ -10,7 +10,28 @@ export function StarfoxGame() {
   const [hp, setHp] = useState(100);
   const [hitFlash, setHitFlash] = useState(0); // red damage flash 0..1
   const [praiseText, setPraiseText] = useState<{ id: number; text: string } | null>(null);
+  const [launching, setLaunching] = useState(false);
+  const [launchProgress, setLaunchProgress] = useState(0);
   const stateRef = useRef({ score: 0, hp: 100, running: false });
+
+  // Launch sequence: simulated loading bar, then start the game
+  const beginLaunch = () => {
+    if (launching) return;
+    setLaunching(true);
+    setLaunchProgress(0);
+    const start = performance.now();
+    const duration = 1600;
+    const tick = () => {
+      const t = Math.min(1, (performance.now() - start) / duration);
+      setLaunchProgress(t);
+      if (t < 1) requestAnimationFrame(tick);
+      else {
+        setLaunching(false);
+        setGameState("playing");
+      }
+    };
+    requestAnimationFrame(tick);
+  };
 
   // Decay red damage flash
   useEffect(() => {
@@ -686,26 +707,92 @@ export function StarfoxGame() {
       )}
 
       {gameState === "menu" && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-6 bg-gradient-to-b from-background via-background/90 to-background">
-          <h1 className="font-mono text-6xl md:text-8xl font-black tracking-[0.2em] text-neon-cyan mb-4"
-              style={{ textShadow: "0 0 20px var(--neon-cyan), 0 0 40px var(--neon-magenta)" }}>
-            STAR<span className="text-neon-magenta">RUNNER</span>
-          </h1>
-          <p className="font-mono text-neon-cyan/80 max-w-md mb-10 tracking-wider">
-            Pilot your fighter through hostile space. Destroy enemy crystals and dodge asteroids.
-          </p>
-          <button
-            onClick={() => setGameState("playing")}
-            className="px-10 py-4 font-mono text-xl tracking-[0.3em] text-background bg-neon-cyan hover:bg-neon-magenta hover:text-foreground transition-all border-2 border-neon-cyan hover:border-neon-magenta"
-            style={{ boxShadow: "0 0 30px var(--neon-cyan)" }}
-          >
-            ▶ LAUNCH
-          </button>
-          <div className="mt-10 font-mono text-xs text-neon-cyan/50 tracking-widest space-y-1">
-            <div>WASD / ARROW KEYS — STEER</div>
-            <div>SPACE / CLICK — FIRE LASERS</div>
-            <div>MOUSE — AIM</div>
+        <div
+          className="absolute inset-0 flex flex-col items-center justify-center text-center px-6 overflow-hidden"
+          style={{
+            background:
+              "radial-gradient(ellipse at 50% 30%, oklch(0.22 0.12 290) 0%, oklch(0.12 0.08 280) 45%, oklch(0.06 0.04 270) 100%)",
+          }}
+        >
+          {/* animated star field */}
+          <div className="pointer-events-none absolute inset-0 opacity-70"
+            style={{
+              backgroundImage:
+                "radial-gradient(1px 1px at 20% 30%, var(--neon-cyan) 50%, transparent 51%), radial-gradient(1px 1px at 70% 80%, var(--neon-magenta) 50%, transparent 51%), radial-gradient(1.5px 1.5px at 40% 60%, white 50%, transparent 51%), radial-gradient(1px 1px at 85% 20%, var(--neon-yellow) 50%, transparent 51%), radial-gradient(1px 1px at 10% 75%, white 50%, transparent 51%)",
+              backgroundSize: "200px 200px, 250px 250px, 180px 180px, 220px 220px, 160px 160px",
+              animation: "starfieldDrift 20s linear infinite",
+            }}
+          />
+          {/* horizon glow */}
+          <div className="pointer-events-none absolute bottom-0 left-0 right-0 h-1/3"
+            style={{ background: "linear-gradient(to top, oklch(0.4 0.25 340 / 0.35), transparent)" }}
+          />
+
+          <div className="relative z-10 flex flex-col items-center">
+            <div className="font-mono text-xs text-neon-cyan/70 tracking-[0.5em] mb-4 animate-pulse">
+              ◤ SECTOR 7 · CALL SIGN ARWING ◥
+            </div>
+            <h1 className="font-mono text-6xl md:text-8xl font-black tracking-[0.2em] mb-4"
+                style={{
+                  background: "linear-gradient(180deg, var(--neon-cyan), var(--neon-magenta))",
+                  WebkitBackgroundClip: "text",
+                  WebkitTextFillColor: "transparent",
+                  filter: "drop-shadow(0 0 24px oklch(0.7 0.28 340 / 0.6)) drop-shadow(0 0 12px oklch(0.85 0.18 200 / 0.6))",
+                }}>
+              STAR<span style={{ WebkitTextFillColor: "var(--neon-yellow)" }}>·</span>RUNNER
+            </h1>
+            <p className="font-mono text-neon-cyan/90 max-w-md mb-10 tracking-wider">
+              Pilot your fighter through hostile space. Destroy enemy crystals and dodge asteroids.
+            </p>
+            <button
+              onClick={beginLaunch}
+              disabled={launching}
+              className="group relative px-12 py-4 font-mono text-xl tracking-[0.3em] text-neon-yellow border-2 border-neon-cyan transition-all disabled:opacity-80"
+              style={{
+                background:
+                  "linear-gradient(135deg, oklch(0.25 0.18 200 / 0.6), oklch(0.25 0.22 340 / 0.6))",
+                boxShadow:
+                  "0 0 30px oklch(0.85 0.18 200 / 0.6), inset 0 0 20px oklch(0.7 0.28 340 / 0.4)",
+                textShadow: "0 0 10px var(--neon-yellow), 0 0 20px var(--neon-yellow)",
+              }}
+            >
+              {launching ? "◌ LAUNCHING…" : "▶ LAUNCH"}
+            </button>
+            <div className="mt-10 font-mono text-xs text-neon-cyan/60 tracking-widest space-y-1">
+              <div>WASD / ARROW KEYS — STEER</div>
+              <div>SPACE / CLICK — FIRE LASERS</div>
+              <div>MOUSE — AIM</div>
+            </div>
           </div>
+
+          {launching && (
+            <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-background/85 backdrop-blur-sm">
+              <div className="font-mono text-neon-cyan tracking-[0.4em] text-sm mb-6 animate-pulse"
+                style={{ textShadow: "var(--hud-glow)" }}>
+                INITIALIZING FLIGHT SYSTEMS
+              </div>
+              <div className="w-72 h-2 border border-neon-cyan/60 relative overflow-hidden"
+                style={{ boxShadow: "0 0 12px var(--neon-cyan)" }}>
+                <div className="h-full transition-[width] duration-75"
+                  style={{
+                    width: `${Math.round(launchProgress * 100)}%`,
+                    background: "linear-gradient(90deg, var(--neon-cyan), var(--neon-magenta))",
+                    boxShadow: "0 0 12px var(--neon-magenta)",
+                  }}
+                />
+              </div>
+              <div className="mt-3 font-mono text-xs text-neon-cyan/70 tracking-widest">
+                {Math.round(launchProgress * 100)}%
+              </div>
+            </div>
+          )}
+
+          <style>{`
+            @keyframes starfieldDrift {
+              0% { background-position: 0 0, 0 0, 0 0, 0 0, 0 0; }
+              100% { background-position: -200px 100px, 250px -150px, -180px 200px, 220px -120px, -160px 180px; }
+            }
+          `}</style>
         </div>
       )}
 
@@ -720,9 +807,13 @@ export function StarfoxGame() {
             FINAL SCORE: {score}
           </p>
           <button
-            onClick={() => setGameState("playing")}
-            className="px-10 py-4 font-mono text-xl tracking-[0.3em] text-background bg-neon-cyan hover:bg-neon-magenta hover:text-foreground transition-all border-2 border-neon-cyan"
-            style={{ boxShadow: "0 0 30px var(--neon-cyan)" }}
+            onClick={() => setGameState("menu")}
+            className="px-12 py-4 font-mono text-xl tracking-[0.3em] text-neon-yellow border-2 border-neon-cyan transition-all"
+            style={{
+              background: "linear-gradient(135deg, oklch(0.25 0.18 200 / 0.6), oklch(0.25 0.22 340 / 0.6))",
+              boxShadow: "0 0 30px oklch(0.85 0.18 200 / 0.6), inset 0 0 20px oklch(0.7 0.28 340 / 0.4)",
+              textShadow: "0 0 10px var(--neon-yellow), 0 0 20px var(--neon-yellow)",
+            }}
           >
             ▶ RETRY
           </button>
