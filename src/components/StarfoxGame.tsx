@@ -807,9 +807,13 @@ export function StarfoxGame() {
             FINAL SCORE: {score}
           </p>
           <button
-            onClick={() => setGameState("playing")}
-            className="px-10 py-4 font-mono text-xl tracking-[0.3em] text-background bg-neon-cyan hover:bg-neon-magenta hover:text-foreground transition-all border-2 border-neon-cyan"
-            style={{ boxShadow: "0 0 30px var(--neon-cyan)" }}
+            onClick={() => setGameState("menu")}
+            className="px-12 py-4 font-mono text-xl tracking-[0.3em] text-neon-yellow border-2 border-neon-cyan transition-all"
+            style={{
+              background: "linear-gradient(135deg, oklch(0.25 0.18 200 / 0.6), oklch(0.25 0.22 340 / 0.6))",
+              boxShadow: "0 0 30px oklch(0.85 0.18 200 / 0.6), inset 0 0 20px oklch(0.7 0.28 340 / 0.4)",
+              textShadow: "0 0 10px var(--neon-yellow), 0 0 20px var(--neon-yellow)",
+            }}
           >
             ▶ RETRY
           </button>
