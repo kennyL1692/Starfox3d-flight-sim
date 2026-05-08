@@ -14,24 +14,79 @@ export function StarfoxGame() {
   const [launchProgress, setLaunchProgress] = useState(0);
   const stateRef = useRef({ score: 0, hp: 100, running: false });
 
-  // Launch sequence: simulated loading bar, then start the game
+  // Launch sequence: chimes + progress ticks + loading bar, then start the game
   const beginLaunch = () => {
     if (launching) return;
     setLaunching(true);
     setLaunchProgress(0);
+
+    // Build a dedicated AudioContext for the launch SFX (the gameplay one is created on start)
+    const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+    const actx = new AudioCtx();
+    const master = actx.createGain();
+    master.gain.value = 0.4;
+    master.connect(actx.destination);
+
+    const chime = (when: number, freq: number, dur = 0.35, type: OscillatorType = "triangle", gain = 0.25) => {
+      const t = actx.currentTime + when;
+      const osc = actx.createOscillator();
+      const g = actx.createGain();
+      osc.type = type;
+      osc.frequency.setValueAtTime(freq, t);
+      osc.frequency.exponentialRampToValueAtTime(freq * 1.5, t + dur);
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(gain, t + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      osc.connect(g).connect(master);
+      osc.start(t);
+      osc.stop(t + dur + 0.05);
+    };
+
+    const playTick = () => {
+      const t = actx.currentTime;
+      const osc = actx.createOscillator();
+      const g = actx.createGain();
+      osc.type = "square";
+      osc.frequency.setValueAtTime(1800, t);
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(0.12, t + 0.005);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.05);
+      osc.connect(g).connect(master);
+      osc.start(t);
+      osc.stop(t + 0.06);
+    };
+
+    // Opening chime arpeggio (C5 → E5 → G5)
+    chime(0.0, 523.25, 0.25, "triangle", 0.25);
+    chime(0.12, 659.25, 0.25, "triangle", 0.25);
+    chime(0.24, 783.99, 0.4, "triangle", 0.28);
+
     const start = performance.now();
     const duration = 1600;
+    let lastTickStep = -1;
     const tick = () => {
       const t = Math.min(1, (performance.now() - start) / duration);
       setLaunchProgress(t);
+      // Tick at every 10% step
+      const step = Math.floor(t * 10);
+      if (step !== lastTickStep && step < 10) {
+        lastTickStep = step;
+        playTick();
+      }
       if (t < 1) requestAnimationFrame(tick);
       else {
+        // Triumphant launch chord (C6 + E6 + G6)
+        chime(0.0, 1046.5, 0.5, "sawtooth", 0.18);
+        chime(0.0, 1318.5, 0.5, "triangle", 0.18);
+        chime(0.0, 1567.98, 0.6, "triangle", 0.22);
+        setTimeout(() => actx.close().catch(() => {}), 800);
         setLaunching(false);
         setGameState("playing");
       }
     };
     requestAnimationFrame(tick);
   };
+
 
   // Decay red damage flash
   useEffect(() => {
