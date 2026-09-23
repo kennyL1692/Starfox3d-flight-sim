@@ -1,5 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
+import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
+import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
+import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
+import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 
 type GameState = "menu" | "playing" | "gameover";
 
@@ -183,112 +187,292 @@ export function StarfoxGame() {
 
     // Scene
     const scene = new THREE.Scene();
-    scene.fog = new THREE.FogExp2(0x0a0420, 0.012);
+    scene.fog = new THREE.FogExp2(0x0a0420, 0.011);
     scene.background = new THREE.Color(0x06021a);
 
-    const camera = new THREE.PerspectiveCamera(70, mount.clientWidth / mount.clientHeight, 0.1, 500);
+    const camera = new THREE.PerspectiveCamera(70, mount.clientWidth / mount.clientHeight, 0.1, 800);
     camera.position.set(0, 3, 10);
 
     const renderer = new THREE.WebGLRenderer({ antialias: true });
-    renderer.setPixelRatio(window.devicePixelRatio);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.setSize(mount.clientWidth, mount.clientHeight);
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.1;
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
     mount.appendChild(renderer.domElement);
 
+    // Post-processing: bloom glow
+    const composer = new EffectComposer(renderer);
+    composer.addPass(new RenderPass(scene, camera));
+    const bloom = new UnrealBloomPass(
+      new THREE.Vector2(mount.clientWidth, mount.clientHeight),
+      0.9, 0.5, 0.2
+    );
+    composer.addPass(bloom);
+    composer.addPass(new OutputPass());
+
+    // Soft radial sprite texture for glows / nebula
+    function makeGlowTexture(inner: string, outer: string) {
+      const c = document.createElement("canvas");
+      c.width = c.height = 128;
+      const g = c.getContext("2d")!;
+      const grd = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+      grd.addColorStop(0, inner);
+      grd.addColorStop(0.35, outer);
+      grd.addColorStop(1, "rgba(0,0,0,0)");
+      g.fillStyle = grd;
+      g.fillRect(0, 0, 128, 128);
+      const t = new THREE.CanvasTexture(c);
+      t.colorSpace = THREE.SRGBColorSpace;
+      return t;
+    }
+    const glowTex = makeGlowTexture("rgba(255,255,255,1)", "rgba(255,255,255,0.35)");
+
     // Lights
-    scene.add(new THREE.AmbientLight(0x6644aa, 0.6));
-    const dir = new THREE.DirectionalLight(0x00ddff, 1.2);
+    scene.add(new THREE.HemisphereLight(0x8866ff, 0x220033, 0.7));
+    const dir = new THREE.DirectionalLight(0x00ddff, 1.6);
     dir.position.set(5, 10, 7);
     scene.add(dir);
-    const rim = new THREE.DirectionalLight(0xff44aa, 0.8);
+    const rim = new THREE.DirectionalLight(0xff44aa, 1.2);
     rim.position.set(-5, 3, -5);
     scene.add(rim);
 
-    // Stars
-    const starGeo = new THREE.BufferGeometry();
-    const starCount = 1500;
-    const starPos = new Float32Array(starCount * 3);
-    for (let i = 0; i < starCount; i++) {
-      starPos[i * 3] = (Math.random() - 0.5) * 400;
-      starPos[i * 3 + 1] = (Math.random() - 0.5) * 200 + 30;
-      starPos[i * 3 + 2] = (Math.random() - 0.5) * 400;
+    // Stars: multi-coloured, twinkling layers
+    function makeStars(count: number, size: number, spread: number) {
+      const geo = new THREE.BufferGeometry();
+      const pos = new Float32Array(count * 3);
+      const col = new Float32Array(count * 3);
+      const palette = [new THREE.Color(0xffffff), new THREE.Color(0x99ccff), new THREE.Color(0xffccee), new THREE.Color(0xffeeaa)];
+      for (let i = 0; i < count; i++) {
+        pos[i * 3] = (Math.random() - 0.5) * spread;
+        pos[i * 3 + 1] = (Math.random() - 0.5) * spread * 0.5 + 30;
+        pos[i * 3 + 2] = (Math.random() - 0.5) * spread;
+        const c = palette[(Math.random() * palette.length) | 0];
+        col.set([c.r, c.g, c.b], i * 3);
+      }
+      geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+      geo.setAttribute("color", new THREE.BufferAttribute(col, 3));
+      return new THREE.Points(
+        geo,
+        new THREE.PointsMaterial({ size, map: glowTex, vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false })
+      );
     }
-    starGeo.setAttribute("position", new THREE.BufferAttribute(starPos, 3));
-    const stars = new THREE.Points(
-      starGeo,
-      new THREE.PointsMaterial({ color: 0xffffff, size: 0.4, sizeAttenuation: true })
-    );
-    scene.add(stars);
+    const stars = makeStars(2500, 0.9, 500);
+    const starsFar = makeStars(1500, 2.2, 700);
+    scene.add(stars, starsFar);
 
-    // Ground grid (tron-like)
-    const grid = new THREE.GridHelper(800, 80, 0x00ffff, 0xff00ff);
+    // Nebula clouds
+    const nebulaColors = [0xff33aa, 0x5522ff, 0x00ccff, 0xaa22ff];
+    for (let i = 0; i < 9; i++) {
+      const sm = new THREE.SpriteMaterial({
+        map: glowTex,
+        color: nebulaColors[i % nebulaColors.length],
+        transparent: true,
+        opacity: 0.18,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+        fog: false,
+      });
+      const s = new THREE.Sprite(sm);
+      s.position.set((Math.random() - 0.5) * 400, 20 + Math.random() * 80, -300 - Math.random() * 100);
+      s.scale.setScalar(120 + Math.random() * 140);
+      scene.add(s);
+    }
+
+    // Distant planet with ring
+    const planet = new THREE.Group();
+    const planetMesh = new THREE.Mesh(
+      new THREE.SphereGeometry(40, 48, 32),
+      new THREE.MeshStandardMaterial({ color: 0x6a2c9a, emissive: 0x2a0a4a, roughness: 0.8, fog: false })
+    );
+    planet.add(planetMesh);
+    const atmo = new THREE.Sprite(
+      new THREE.SpriteMaterial({ map: glowTex, color: 0xff55cc, transparent: true, opacity: 0.35, depthWrite: false, blending: THREE.AdditiveBlending, fog: false })
+    );
+    atmo.scale.setScalar(120);
+    planet.add(atmo);
+    const pRing = new THREE.Mesh(
+      new THREE.RingGeometry(55, 80, 96),
+      new THREE.MeshBasicMaterial({ color: 0xffaa66, side: THREE.DoubleSide, transparent: true, opacity: 0.35, fog: false })
+    );
+    pRing.rotation.x = Math.PI / 2.4;
+    planet.add(pRing);
+    planet.position.set(-140, 70, -420);
+    scene.add(planet);
+
+    // Ground grid (tron-like) + glowing horizon
+    const grid = new THREE.GridHelper(800, 100, 0x00ffff, 0xff00ff);
     (grid.material as THREE.Material).transparent = true;
-    (grid.material as THREE.Material).opacity = 0.4;
+    (grid.material as THREE.Material).opacity = 0.35;
     grid.position.y = -4;
     scene.add(grid);
+    const horizon = new THREE.Sprite(
+      new THREE.SpriteMaterial({ map: glowTex, color: 0xff2a88, transparent: true, opacity: 0.5, depthWrite: false, blending: THREE.AdditiveBlending, fog: false })
+    );
+    horizon.position.set(0, -4, -350);
+    horizon.scale.set(900, 60, 1);
+    scene.add(horizon);
 
-    // Player ship (Arwing-inspired)
+    // Wireframe mountains on both sides, scrolling
+    const mountains: THREE.Mesh[] = [];
+    const mtnMat = new THREE.MeshBasicMaterial({ color: 0xaa33ff, wireframe: true, transparent: true, opacity: 0.45 });
+    const mtnFill = new THREE.MeshBasicMaterial({ color: 0x0a0322 });
+    for (const side of [-1, 1]) {
+      for (let k = 0; k < 2; k++) {
+        const g = new THREE.PlaneGeometry(80, 200, 16, 40);
+        const p = g.attributes.position;
+        for (let i = 0; i < p.count; i++) {
+          const x = p.getX(i);
+          const y = p.getY(i);
+          const edge = Math.abs(x + side * 40) / 80; // higher away from track
+          const h = (Math.sin(y * 0.15) + Math.cos(x * 0.3 + y * 0.07)) * 3 + Math.random() * 4;
+          p.setZ(i, Math.max(0, h * edge * 2.2));
+        }
+        g.computeVertexNormals();
+        const group = new THREE.Mesh(g, mtnFill);
+        const wire = new THREE.Mesh(g, mtnMat);
+        group.add(wire);
+        group.rotation.x = -Math.PI / 2;
+        group.position.set(side * 60, -4.1, -k * 200);
+        scene.add(group);
+        mountains.push(group);
+      }
+    }
+
+    // Speed streaks
+    const streakCount = 120;
+    const streakGeo = new THREE.BufferGeometry();
+    const streakPos = new Float32Array(streakCount * 6);
+    function resetStreak(i: number, z?: number) {
+      const x = (Math.random() - 0.5) * 60;
+      const y = (Math.random() - 0.5) * 30 + 2;
+      const zz = z ?? -150 * Math.random();
+      streakPos.set([x, y, zz, x, y, zz - 3 - Math.random() * 4], i * 6);
+    }
+    for (let i = 0; i < streakCount; i++) resetStreak(i);
+    streakGeo.setAttribute("position", new THREE.BufferAttribute(streakPos, 3));
+    const streaks = new THREE.LineSegments(
+      streakGeo,
+      new THREE.LineBasicMaterial({ color: 0x88ccff, transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending })
+    );
+    scene.add(streaks);
+
+    // Player ship (Arwing-inspired, detailed)
     const ship = new THREE.Group();
-    const bodyMat = new THREE.MeshStandardMaterial({
-      color: 0xddddee,
-      metalness: 0.7,
-      roughness: 0.3,
-      emissive: 0x222244,
-    });
-    const accentMat = new THREE.MeshStandardMaterial({
-      color: 0x00ffff,
-      emissive: 0x00aaff,
-      emissiveIntensity: 1.5,
-    });
-    const wingMat = new THREE.MeshStandardMaterial({
-      color: 0x4466aa,
-      metalness: 0.6,
-      roughness: 0.4,
-    });
+    const bodyMat = new THREE.MeshStandardMaterial({ color: 0xe8e8f4, metalness: 0.8, roughness: 0.25, emissive: 0x1a1a33 });
+    const panelMat = new THREE.MeshStandardMaterial({ color: 0x9aa0b8, metalness: 0.9, roughness: 0.35 });
+    const accentMat = new THREE.MeshStandardMaterial({ color: 0x00ffff, emissive: 0x00ccff, emissiveIntensity: 2.2 });
+    const canopyMat = new THREE.MeshPhysicalMaterial({ color: 0x33ddff, emissive: 0x0066aa, emissiveIntensity: 0.8, metalness: 0.2, roughness: 0.05, clearcoat: 1, transparent: true, opacity: 0.9 });
+    const wingMat = new THREE.MeshStandardMaterial({ color: 0x3a5cc0, metalness: 0.7, roughness: 0.3, emissive: 0x0a1030 });
+    const redMat = new THREE.MeshStandardMaterial({ color: 0xff3355, emissive: 0xff1133, emissiveIntensity: 1.2 });
 
-    const fuselage = new THREE.Mesh(new THREE.ConeGeometry(0.4, 1.8, 8), bodyMat);
+    const fuselage = new THREE.Mesh(new THREE.ConeGeometry(0.42, 2.2, 10), bodyMat);
     fuselage.rotation.x = -Math.PI / 2;
+    fuselage.position.z = -0.1;
     ship.add(fuselage);
+    const hull = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.34, 0.8, 10), panelMat);
+    hull.rotation.x = Math.PI / 2;
+    hull.position.z = 1.3;
+    ship.add(hull);
+    const stripe = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.05, 1.6), redMat);
+    stripe.position.set(0, 0.3, 0.1);
+    ship.add(stripe);
 
-    const cockpit = new THREE.Mesh(new THREE.SphereGeometry(0.3, 12, 8), accentMat);
-    cockpit.position.set(0, 0.15, 0.1);
-    cockpit.scale.set(1, 0.6, 1.4);
+    const cockpit = new THREE.Mesh(new THREE.SphereGeometry(0.3, 20, 14), canopyMat);
+    cockpit.position.set(0, 0.24, 0.35);
+    cockpit.scale.set(0.9, 0.6, 1.8);
     ship.add(cockpit);
 
-    const wingGeo = new THREE.BoxGeometry(1.6, 0.08, 0.6);
-    const lWing = new THREE.Mesh(wingGeo, wingMat);
-    lWing.position.set(-0.7, 0, 0.2);
-    ship.add(lWing);
-    const rWing = lWing.clone();
-    rWing.position.x = 0.7;
+    // Swept wings built from a shape
+    const wingShape = new THREE.Shape();
+    wingShape.moveTo(0, 0);
+    wingShape.lineTo(1.9, 0.55);
+    wingShape.lineTo(1.9, 0.85);
+    wingShape.lineTo(0, 1.1);
+    wingShape.lineTo(0, 0);
+    const wingGeo = new THREE.ExtrudeGeometry(wingShape, { depth: 0.07, bevelEnabled: true, bevelSize: 0.02, bevelThickness: 0.02, bevelSegments: 1 });
+    wingGeo.rotateX(Math.PI / 2);
+    const rWing = new THREE.Mesh(wingGeo, wingMat);
+    rWing.position.set(0.3, 0, 0.1);
+    rWing.rotation.z = -0.12;
     ship.add(rWing);
+    const lWing = rWing.clone();
+    lWing.scale.x = -1;
+    lWing.position.x = -0.3;
+    lWing.rotation.z = 0.12;
+    ship.add(lWing);
 
-    const finL = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.5, 0.4), wingMat);
-    finL.position.set(-1.3, 0.25, 0.2);
-    ship.add(finL);
-    const finR = finL.clone();
-    finR.position.x = 1.3;
-    ship.add(finR);
+    // Vertical fins (G-diffusers)
+    const finShape = new THREE.Shape();
+    finShape.moveTo(0, 0);
+    finShape.lineTo(0.6, 0);
+    finShape.lineTo(0.2, 0.75);
+    finShape.lineTo(0, 0.75);
+    const finGeo = new THREE.ExtrudeGeometry(finShape, { depth: 0.05, bevelEnabled: false });
+    finGeo.rotateY(-Math.PI / 2);
+    for (const sx of [-1, 1]) {
+      const fin = new THREE.Mesh(finGeo, panelMat);
+      fin.position.set(sx * 1.55, 0.05, 0.4);
+      fin.rotation.z = -sx * 0.25;
+      ship.add(fin);
+      const tip = new THREE.Mesh(new THREE.SphereGeometry(0.06, 8, 8), sx < 0 ? redMat : accentMat);
+      tip.position.set(sx * 2.15, 0.02, 0.85);
+      ship.add(tip);
+      const cannon = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.9, 6), panelMat);
+      cannon.rotation.x = Math.PI / 2;
+      cannon.position.set(sx * 1.2, -0.05, 0.05);
+      ship.add(cannon);
+    }
 
-    // Engine glow
-    const engineL = new THREE.Mesh(new THREE.SphereGeometry(0.18, 8, 8), accentMat);
-    engineL.position.set(-0.3, 0, 0.85);
-    ship.add(engineL);
-    const engineR = engineL.clone();
-    engineR.position.x = 0.3;
-    ship.add(engineR);
+    // Engines with flames
+    const flameMat = new THREE.MeshBasicMaterial({ color: 0x66e0ff, transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false });
+    const flames: THREE.Mesh[] = [];
+    for (const sx of [-0.28, 0.28]) {
+      const nozzle = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.2, 0.25, 12, 1, true), panelMat);
+      nozzle.rotation.x = Math.PI / 2;
+      nozzle.position.set(sx, 0, 1.75);
+      ship.add(nozzle);
+      const core = new THREE.Mesh(new THREE.SphereGeometry(0.14, 12, 12), accentMat);
+      core.position.set(sx, 0, 1.8);
+      ship.add(core);
+      const flame = new THREE.Mesh(new THREE.ConeGeometry(0.15, 1, 12, 1, true), flameMat);
+      flame.rotation.x = Math.PI / 2;
+      flame.position.set(sx, 0, 2.3);
+      ship.add(flame);
+      flames.push(flame);
+    }
+    const engineLight = new THREE.PointLight(0x33ccff, 3, 6);
+    engineLight.position.set(0, 0, 2.2);
+    ship.add(engineLight);
 
+    ship.scale.setScalar(0.75);
     ship.position.set(0, 0, 4);
     scene.add(ship);
 
-    // Lasers
-    type Laser = { mesh: THREE.Mesh; vel: THREE.Vector3 };
+    // Engine trail particles
+    const trailCount = 60;
+    const trailGeo = new THREE.BufferGeometry();
+    const trailPos = new Float32Array(trailCount * 3);
+    trailGeo.setAttribute("position", new THREE.BufferAttribute(trailPos, 3));
+    const trail = new THREE.Points(
+      trailGeo,
+      new THREE.PointsMaterial({ size: 0.35, map: glowTex, color: 0x55ddff, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending })
+    );
+    scene.add(trail);
+    let trailIdx = 0;
+
+    // Lasers (core + glow)
+    type Laser = { mesh: THREE.Object3D; vel: THREE.Vector3 };
     const lasers: Laser[] = [];
-    const laserGeo = new THREE.CylinderGeometry(0.08, 0.08, 1.2, 6);
-    const laserMat = new THREE.MeshBasicMaterial({ color: 0x00ff88 });
+    const laserGeo = new THREE.CylinderGeometry(0.05, 0.05, 1.4, 6);
+    const laserMat = new THREE.MeshBasicMaterial({ color: 0xccffdd });
+    const laserGlowGeo = new THREE.CylinderGeometry(0.16, 0.16, 1.8, 8);
+    const laserGlowMat = new THREE.MeshBasicMaterial({ color: 0x00ff88, transparent: true, opacity: 0.45, blending: THREE.AdditiveBlending, depthWrite: false });
 
     function shoot() {
-      for (const offset of [-0.3, 0.3]) {
+      for (const offset of [-0.9, 0.9]) {
         const m = new THREE.Mesh(laserGeo, laserMat);
+        m.add(new THREE.Mesh(laserGlowGeo, laserGlowMat));
         m.rotation.x = Math.PI / 2;
         m.position.copy(ship.position);
         m.position.x += offset;
@@ -299,40 +483,64 @@ export function StarfoxGame() {
       playLaser();
     }
 
-    // Enemies
-    type Enemy = { mesh: THREE.Mesh; hp: number; spin: number };
+    // Enemies: glowing core + armour + spinning ring
+    type Enemy = { mesh: THREE.Object3D; hp: number; spin: number; ring: THREE.Object3D };
     const enemies: Enemy[] = [];
-    const enemyGeo = new THREE.OctahedronGeometry(0.7, 0);
-    const enemyMat = new THREE.MeshStandardMaterial({
-      color: 0xff2266,
-      emissive: 0xff0044,
-      emissiveIntensity: 0.6,
-      metalness: 0.5,
-      roughness: 0.4,
-    });
+    const enemyCoreGeo = new THREE.IcosahedronGeometry(0.35, 1);
+    const enemyCoreMat = new THREE.MeshStandardMaterial({ color: 0xff4488, emissive: 0xff0055, emissiveIntensity: 2.5 });
+    const enemyShellGeo = new THREE.OctahedronGeometry(0.75, 0);
+    const enemyShellMat = new THREE.MeshStandardMaterial({ color: 0x331122, metalness: 0.9, roughness: 0.3, wireframe: false, flatShading: true, transparent: true, opacity: 0.85 });
+    const enemyEdgeMat = new THREE.LineBasicMaterial({ color: 0xff66aa });
+    const enemyEdges = new THREE.EdgesGeometry(enemyShellGeo);
+    const enemyRingGeo = new THREE.TorusGeometry(1.0, 0.04, 8, 48);
+    const enemyRingMat = new THREE.MeshBasicMaterial({ color: 0xff88cc });
 
     function spawnEnemy() {
-      const m = new THREE.Mesh(enemyGeo, enemyMat);
+      const m = new THREE.Group();
+      m.add(new THREE.Mesh(enemyCoreGeo, enemyCoreMat));
+      m.add(new THREE.Mesh(enemyShellGeo, enemyShellMat));
+      m.add(new THREE.LineSegments(enemyEdges, enemyEdgeMat));
+      const ring = new THREE.Mesh(enemyRingGeo, enemyRingMat);
+      ring.rotation.x = Math.PI / 2;
+      m.add(ring);
       m.position.set((Math.random() - 0.5) * 18, (Math.random() - 0.5) * 6 + 1, -80);
       scene.add(m);
-      enemies.push({ mesh: m, hp: 1, spin: Math.random() * 0.05 + 0.02 });
+      enemies.push({ mesh: m, hp: 1, spin: Math.random() * 0.05 + 0.02, ring });
     }
 
-    // Asteroids
+    // Asteroids: several lumpy variants with craters
     type Rock = { mesh: THREE.Mesh; spin: THREE.Vector3 };
     const rocks: Rock[] = [];
-    const rockGeo = new THREE.DodecahedronGeometry(1.2, 0);
-    const rockMat = new THREE.MeshStandardMaterial({
-      color: 0x886655,
-      roughness: 0.9,
-      flatShading: true,
-    });
+    const rockGeos: THREE.BufferGeometry[] = [];
+    for (let v = 0; v < 5; v++) {
+      const g = new THREE.IcosahedronGeometry(1.2, 2);
+      const p = g.attributes.position;
+      const tmp = new THREE.Vector3();
+      const seed = Math.random() * 10;
+      for (let i = 0; i < p.count; i++) {
+        tmp.fromBufferAttribute(p, i);
+        const n =
+          Math.sin(tmp.x * 2.1 + seed) * Math.cos(tmp.y * 1.7 + seed) * 0.18 +
+          Math.sin(tmp.z * 3.3 + seed * 2) * 0.1 +
+          (Math.random() - 0.5) * 0.08;
+        tmp.multiplyScalar(1 + n);
+        p.setXYZ(i, tmp.x, tmp.y, tmp.z);
+      }
+      g.computeVertexNormals();
+      rockGeos.push(g);
+    }
+    const rockMats = [0x7a5a4a, 0x5a4a44, 0x8a6a55].map(
+      (c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.95, metalness: 0.1, flatShading: true, emissive: 0x110604 })
+    );
 
     function spawnRock() {
-      const m = new THREE.Mesh(rockGeo, rockMat);
+      const m = new THREE.Mesh(
+        rockGeos[(Math.random() * rockGeos.length) | 0],
+        rockMats[(Math.random() * rockMats.length) | 0]
+      );
       m.position.set((Math.random() - 0.5) * 25, (Math.random() - 0.5) * 8, -100);
       const s = 0.6 + Math.random() * 1.4;
-      m.scale.set(s, s, s);
+      m.scale.set(s, s * (0.8 + Math.random() * 0.4), s);
       scene.add(m);
       rocks.push({
         mesh: m,
@@ -416,6 +624,7 @@ export function StarfoxGame() {
       camera.aspect = mount.clientWidth / mount.clientHeight;
       camera.updateProjectionMatrix();
       renderer.setSize(mount.clientWidth, mount.clientHeight);
+      composer.setSize(mount.clientWidth, mount.clientHeight);
     };
     window.addEventListener("resize", onResize);
 
@@ -465,7 +674,32 @@ export function StarfoxGame() {
       frame++;
 
       // Move grid for speed sensation
-      grid.position.z = (grid.position.z + dt * 40) % 10;
+      grid.position.z = (grid.position.z + dt * 40) % 8;
+      for (const m of mountains) {
+        m.position.z += dt * 40;
+        if (m.position.z > 150) m.position.z -= 400;
+      }
+      for (let i = 0; i < streakCount; i++) {
+        const b = i * 6;
+        streakPos[b + 2] += dt * 90;
+        streakPos[b + 5] += dt * 90;
+        if (streakPos[b + 5] > 15) resetStreak(i, -150);
+      }
+      streakGeo.attributes.position.needsUpdate = true;
+      stars.rotation.z += dt * 0.004;
+      planet.rotation.y += dt * 0.02;
+      for (const e of enemies) e.ring.rotation.z += dt * 3;
+
+      // Engine flicker + trail
+      const fl = 0.8 + Math.random() * 0.5;
+      for (const f of flames) f.scale.set(1, fl, 1);
+      engineLight.intensity = 2.5 + Math.random();
+      for (const sx of [-0.21, 0.21]) {
+        trailPos.set([ship.position.x + sx, ship.position.y, ship.position.z + 1.5], trailIdx * 3);
+        trailIdx = (trailIdx + 1) % trailCount;
+      }
+      for (let i = 0; i < trailCount; i++) trailPos[i * 3 + 2] += dt * 25;
+      trailGeo.attributes.position.needsUpdate = true;
 
       // Player movement
       const speed = 12;
@@ -661,7 +895,7 @@ export function StarfoxGame() {
         }
       }
 
-      renderer.render(scene, camera);
+      composer.render();
     }
 
     function endGame() {
